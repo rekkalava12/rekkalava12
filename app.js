@@ -17,7 +17,7 @@ const state = {
   medLog: DB.read('medLog', {}),      // { 'YYYY-MM-DD': { 'medId_morning': true } }
   workouts: DB.read('workouts', []),  // {id, date, name, notes, exercises:[{name, sets:[{weight,reps}]}]}
   runs: DB.read('runs', []),          // {id, date, name, distanceKm, durationSec, source, elevation, notes}
-  settings: DB.read('settings', { remEnabled: false, remMorning: '08:00', remEvening: '20:00' }),
+  settings: DB.read('settings', { remEnabled: false, remMorning: '08:00', remEvening: '20:00', pushServerUrl: '' }),
   selectedDate: todayISO()
 };
 
@@ -143,7 +143,7 @@ function renderMedManageList() {
     li.querySelector('.icon-btn').addEventListener('click', () => {
       if (confirm(`Poistetaanko lääke “${med.name}”?`)) {
         state.meds = state.meds.filter(m => m.id !== med.id);
-        save('meds'); renderMeds();
+        save('meds'); renderMeds(); syncPush();
       }
     });
     list.appendChild(li);
@@ -159,6 +159,7 @@ $('#medForm').addEventListener('submit', e => {
   e.target.reset();
   renderMeds();
   toast('Lääke lisätty');
+  syncPush();
 });
 
 /* ============================================================
@@ -522,21 +523,110 @@ function checkMissedReminders() {
 
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkMissedReminders(); });
 
+/* ---------- Web Push (taustapalvelu) ----------
+   Jos käyttäjä on antanut push-palvelimen osoitteen, tilataan push-ilmoitukset,
+   jolloin muistutukset tulevat myös sovellus suljettuna. */
+function pushBase() { return (state.settings.pushServerUrl || '').trim().replace(/\/+$/, ''); }
+function pushSupported() { return 'serviceWorker' in navigator && 'PushManager' in window; }
+
+function urlB64ToUint8Array(b64) {
+  const padding = '='.repeat((4 - b64.length % 4) % 4);
+  const base64 = (b64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+function medNamesBySlot() {
+  return { morning: medsForSlot('morning').map(m => m.name), evening: medsForSlot('evening').map(m => m.name) };
+}
+
+let pushSyncing = false;
+async function syncPush(opts = {}) {
+  const base = pushBase();
+  if (!base || !pushSupported() || pushSyncing) return;
+  pushSyncing = true;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+
+    // Muistutukset pois -> peru tilaus palvelimelta
+    if (!state.settings.remEnabled) {
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) await fetch(base + '/api/unsubscribe', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: sub.endpoint })
+      }).catch(() => {});
+      return;
+    }
+    if (!notifSupported() || Notification.permission !== 'granted') return;
+
+    const r = await fetch(base + '/api/vapidPublicKey');
+    if (!r.ok) throw new Error('vapid');
+    const { key } = await r.json();
+
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(key) });
+
+    const resp = await fetch(base + '/api/subscribe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subscription: sub,
+        settings: {
+          remEnabled: true,
+          remMorning: state.settings.remMorning,
+          remEvening: state.settings.remEvening,
+          tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          meds: medNamesBySlot()
+        }
+      })
+    });
+    if (!resp.ok) throw new Error('subscribe');
+    if (opts.announce) toast('Push-muistutukset käytössä ✅');
+  } catch (e) {
+    console.error('syncPush', e);
+    if (opts.announce) toast('Push-palvelimeen ei saatu yhteyttä');
+  } finally {
+    pushSyncing = false;
+    updateReminderHint();
+  }
+}
+
+async function sendTestPush() {
+  const base = pushBase();
+  if (!base) { toast('Anna ensin palvelimen osoite'); return; }
+  if (!pushSupported()) { toast('Selain ei tue push-ilmoituksia'); return; }
+  if (!state.settings.remEnabled || Notification.permission !== 'granted') { toast('Kytke muistutukset ensin päälle'); return; }
+  try {
+    await syncPush();
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) { toast('Tilaus puuttuu'); return; }
+    const r = await fetch(base + '/api/test', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: sub.endpoint })
+    });
+    toast(r.ok ? 'Testimuistutus lähetetty 📨' : 'Testi epäonnistui');
+  } catch (e) { console.error(e); toast('Testi epäonnistui'); }
+}
+
 function updateReminderHint() {
   const hint = $('#remHint');
   if (!('Notification' in window)) { hint.textContent = 'Tämä selain ei tue muistutuksia.'; return; }
   if (!state.settings.remEnabled) { hint.textContent = 'Muistutukset pois päältä.'; return; }
   if (Notification.permission === 'denied') { hint.textContent = '⚠️ Ilmoitukset on estetty selaimen asetuksissa.'; return; }
   if (Notification.permission === 'granted') {
-    hint.textContent = `Muistutukset päällä – aamu ${state.settings.remMorning}, ilta ${state.settings.remEvening}. Pidä sovellus auki tai lisättynä aloitusnäyttöön.`;
+    const push = pushBase()
+      ? ' Push-palvelin asetettu – muistutukset tulevat myös sovellus suljettuna.'
+      : ' Pidä sovellus auki tai lisättynä aloitusnäyttöön. (Lisää push-palvelin saadaksesi muistutukset myös suljettuna.)';
+    hint.textContent = `Muistutukset päällä – aamu ${state.settings.remMorning}, ilta ${state.settings.remEvening}.` + push;
   } else hint.textContent = 'Napauta kytkintä salliaksesi ilmoitukset.';
 }
 
 function initReminderUI() {
-  const enabled = $('#remEnabled'), mor = $('#remMorning'), eve = $('#remEvening');
+  const enabled = $('#remEnabled'), mor = $('#remMorning'), eve = $('#remEvening'), purl = $('#pushUrl');
   enabled.checked = state.settings.remEnabled;
   mor.value = state.settings.remMorning;
   eve.value = state.settings.remEvening;
+  purl.value = state.settings.pushServerUrl || '';
 
   enabled.addEventListener('change', async () => {
     if (enabled.checked && 'Notification' in window && Notification.permission !== 'granted') {
@@ -546,12 +636,18 @@ function initReminderUI() {
     state.settings.remEnabled = enabled.checked;
     save('settings'); scheduleReminders(); updateReminderHint();
     if (enabled.checked) showNotification('Muistutukset päällä ✅', 'Saat jatkossa muistutuksen lääkkeistä.');
+    syncPush({ announce: !!pushBase() });
   });
   [mor, eve].forEach(el => el.addEventListener('change', () => {
     state.settings.remMorning = mor.value;
     state.settings.remEvening = eve.value;
-    save('settings'); scheduleReminders(); updateReminderHint();
+    save('settings'); scheduleReminders(); updateReminderHint(); syncPush();
   }));
+  purl.addEventListener('change', () => {
+    state.settings.pushServerUrl = purl.value.trim();
+    save('settings'); updateReminderHint(); syncPush({ announce: true });
+  });
+  $('#pushTest').addEventListener('click', sendTestPush);
   updateReminderHint();
 }
 
@@ -683,7 +779,7 @@ if ('serviceWorker' in navigator) {
 
 // Näytä mahdollinen ohitettu muistutus kun SW on valmis (ilmoitukset näkyvät paremmin).
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.ready.then(() => checkMissedReminders()).catch(() => checkMissedReminders());
+  navigator.serviceWorker.ready.then(() => { checkMissedReminders(); syncPush(); }).catch(() => checkMissedReminders());
 } else {
   checkMissedReminders();
 }

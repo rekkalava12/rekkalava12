@@ -1,0 +1,16 @@
+{
+  "name": "terveys-push-server",
+  "version": "1.0.0",
+  "description": "Kevyt Web Push -palvelin Terveyspäiväkirjan lääkemuistutuksille.",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "genkeys": "node -e \"console.log(require('web-push').generateVAPIDKeys())\""
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "express": "^4.19.2",
+    "web-push": "^3.6.7"
+  }
+}
