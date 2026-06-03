@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Terveyspäiväkirja</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💊</text></svg>" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>Terveyspäiväkirja</h1>
+    <input type="date" id="globalDate" class="date-picker" />
+  </header>
+
+  <main id="views">
+    <!-- LÄÄKKEET -->
+    <section id="view-meds" class="view active">
+      <div class="day-summary" id="medSummary"></div>
+
+      <h2>Aamulääkkeet <span class="time-icon">🌅</span></h2>
+      <ul class="med-list" id="medListMorning"></ul>
+
+      <h2>Iltalääkkeet <span class="time-icon">🌙</span></h2>
+      <ul class="med-list" id="medListEvening"></ul>
+
+      <details class="manage">
+        <summary>Muistutukset 🔔</summary>
+        <div class="card form">
+          <label class="switch-row">
+            <span>Muistuta lääkkeistä</span>
+            <input type="checkbox" id="remEnabled" />
+          </label>
+          <div class="row two" style="margin-top:12px;">
+            <label>Aamumuistutus
+              <input type="time" id="remMorning" value="08:00" />
+            </label>
+            <label>Iltamuistutus
+              <input type="time" id="remEvening" value="20:00" />
+            </label>
+          </div>
+          <p class="empty-hint" id="remHint" style="margin:10px 0 0;"></p>
+        </div>
+      </details>
+
+      <details class="manage">
+        <summary>Hallinnoi lääkkeitä</summary>
+        <form id="medForm" class="card form">
+          <div class="row">
+            <label>Lääkkeen nimi
+              <input type="text" id="medName" placeholder="esim. Burana" required />
+            </label>
+          </div>
+          <div class="row two">
+            <label>Annos
+              <input type="text" id="medDose" placeholder="esim. 400 mg" />
+            </label>
+            <label>Ajankohta
+              <select id="medTime">
+                <option value="morning">Aamu</option>
+                <option value="evening">Ilta</option>
+                <option value="both">Aamu & ilta</option>
+              </select>
+            </label>
+          </div>
+          <button type="submit" class="btn primary">Lisää lääke</button>
+        </form>
+        <ul class="manage-list" id="medManageList"></ul>
+      </details>
+    </section>
+
+    <!-- TREENIT -->
+    <section id="view-workouts" class="view">
+      <div class="view-head">
+        <h2>Treenit</h2>
+        <button class="btn primary small" id="addWorkoutBtn">+ Uusi treeni</button>
+      </div>
+      <ul class="entry-list" id="workoutList"></ul>
+    </section>
+
+    <!-- TILASTOT -->
+    <section id="view-stats" class="view">
+      <h2>Lenkit – kilometrit / viikko</h2>
+      <div class="card chart-card" id="chartRuns"></div>
+
+      <h2>Treenit – liikkeen kehitys</h2>
+      <div class="card form">
+        <label>Valitse liike
+          <select id="exSelect"></select>
+        </label>
+      </div>
+      <div class="card chart-card" id="chartExercise"></div>
+    </section>
+
+    <!-- LENKIT -->
+    <section id="view-runs" class="view">
+      <div class="view-head">
+        <h2>Lenkit</h2>
+        <div class="head-actions">
+          <label class="btn ghost small" for="gpxInput">Tuo GPX</label>
+          <input type="file" id="gpxInput" accept=".gpx" multiple hidden />
+          <button class="btn primary small" id="addRunBtn">+ Uusi lenkki</button>
+        </div>
+      </div>
+      <div class="run-stats" id="runStats"></div>
+      <ul class="entry-list" id="runList"></ul>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab active" data-view="meds"><span>💊</span>Lääkkeet</button>
+    <button class="tab" data-view="workouts"><span>🏋️</span>Treenit</button>
+    <button class="tab" data-view="runs"><span>👟</span>Lenkit</button>
+    <button class="tab" data-view="stats"><span>📊</span>Tilastot</button>
+  </nav>
+
+  <!-- Modaali -->
+  <div class="modal-backdrop" id="modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h3 id="modalTitle"></h3>
+        <button class="icon-btn" id="modalClose" aria-label="Sulje">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
