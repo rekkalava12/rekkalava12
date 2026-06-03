@@ -34,10 +34,17 @@ Lataa kansio ja avaa `index.html` selaimessa.
 
 Avaa **Muistutukset**, laita kytkin päälle (selain kysyy luvan ilmoituksiin) ja
 aseta aamu- ja iltamuistutuksen kellonajat. Sovellus huomauttaa vielä
-ottamattomista lääkkeistä. Muistutukset toimivat parhaiten, kun sovellus on
-lisätty puhelimen aloitusnäyttöön. Huom: koska kyseessä on palvelimeton
-sovellus, ajastettu ilmoitus laukeaa luotettavimmin kun sovellus on auki tai
-taustalla – jatkuvasti suljettuna oleva sovellus ei voi lähettää ilmoituksia.
+ottamattomista lääkkeistä, kun avaat sovelluksen muistutusajan jälkeen.
+
+**Muistutukset myös sovellus suljettuna (push-palvelin):**
+Jos haluat muistutukset puhelimeen vaikka sovellus ei ole auki, ota käyttöön
+kevyt push-palvelin (kansio [`server/`](server/README.md)). Julkaise se (esim.
+ilmaiseksi Render.comissa) ja liitä sen osoite *Push-palvelimen osoite*
+-kenttään. Paina *Lähetä testimuistutus* varmistaaksesi toimivuuden. Ohjeet:
+[`server/README.md`](server/README.md).
+
+Ilman push-palvelinta muistutukset toimivat parhaiten, kun sovellus on lisätty
+puhelimen aloitusnäyttöön ja avaat sen muistutusaikoihin.
 
 ## Tilastot
 
