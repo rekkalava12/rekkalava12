@@ -2,9 +2,10 @@
 
 Yksinkertainen sovellus, johon voit kirjata:
 
-- **Lääkkeet** – aamu- ja iltalääkkeet, joita voit merkata otetuksi päiväkohtaisesti
+- **Lääkkeet** – aamu- ja iltalääkkeet, joita voit merkata otetuksi päiväkohtaisesti (+ muistutukset)
 - **Treenit** – treenit liikkeineen, sarjoineen, painoineen ja toistoineen
 - **Lenkit** – lenkit käsin kirjattuna **tai** tuotuna Sports Trackerin GPX-tiedostosta
+- **Tilastot** – graafit: kilometrit viikoittain ja treeniliikkeen painokehitys
 
 Sovellus on yksi selainsovellus (HTML/CSS/JS). Se toimii puhelimella ja
 tietokoneella, myös offline-tilassa, ja kaikki tiedot tallentuvat omaan
@@ -28,6 +29,21 @@ Lataa kansio ja avaa `index.html` selaimessa.
 - Päänäkymässä napauta lääkettä merkataksesi sen otetuksi valitulle päivälle.
 - Vaihda yläreunan päivämäärää tarkastellaksesi tai täydentääksesi menneitä
   päiviä.
+
+### Muistutukset 🔔
+
+Avaa **Muistutukset**, laita kytkin päälle (selain kysyy luvan ilmoituksiin) ja
+aseta aamu- ja iltamuistutuksen kellonajat. Sovellus huomauttaa vielä
+ottamattomista lääkkeistä. Muistutukset toimivat parhaiten, kun sovellus on
+lisätty puhelimen aloitusnäyttöön. Huom: koska kyseessä on palvelimeton
+sovellus, ajastettu ilmoitus laukeaa luotettavimmin kun sovellus on auki tai
+taustalla – jatkuvasti suljettuna oleva sovellus ei voi lähettää ilmoituksia.
+
+## Tilastot
+
+- **Lenkit – km/viikko**: pylväsgraafi viimeisten 8 viikon kilometreistä.
+- **Treenit – liikkeen kehitys**: valitse liike, niin näet sen suurimman
+  painon kehityksen treeneittäin.
 
 ## Treenit
 

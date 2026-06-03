@@ -192,6 +192,25 @@ textarea { resize: vertical; min-height: 60px; }
 .ex-readonly .exr-sets { color: var(--muted); font-size: 0.9rem; }
 .modal-actions { display: flex; gap: 10px; margin-top: 8px; }
 .modal-actions .btn { flex: 1; }
+/* Muistutuskytkin */
+.switch-row { display: flex; align-items: center; justify-content: space-between; font-size: 0.95rem; color: var(--text); }
+.switch-row input[type="checkbox"] { width: 46px; height: 26px; margin: 0; appearance: none; background: var(--card-2); border: 1px solid var(--border); border-radius: 999px; position: relative; cursor: pointer; transition: background .15s; }
+.switch-row input[type="checkbox"]::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
+.switch-row input[type="checkbox"]:checked { background: var(--green); border-color: var(--green); }
+.switch-row input[type="checkbox"]:checked::after { transform: translateX(20px); background: #06281c; }
+
+/* Graafit */
+.chart-card { padding: 12px; overflow-x: auto; }
+.chart-card svg { display: block; width: 100%; height: auto; }
+.chart-empty { color: var(--muted); font-size: 0.9rem; text-align: center; padding: 24px 0; }
+.bar { fill: var(--primary); }
+.bar:hover { fill: #7dd3fc; }
+.axis-label { fill: var(--muted); font-size: 10px; }
+.grid-line { stroke: var(--border); stroke-width: 1; }
+.line-path { fill: none; stroke: var(--green); stroke-width: 2.5; }
+.dot { fill: var(--green); }
+.val-label { fill: var(--text); font-size: 9px; text-anchor: middle; }
+
 .toast {
   position: fixed; bottom: calc(84px + var(--safe-bottom)); left: 50%; transform: translateX(-50%);
   background: var(--card-2); color: var(--text); border: 1px solid var(--border);

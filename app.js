@@ -17,6 +17,7 @@ const state = {
   medLog: DB.read('medLog', {}),      // { 'YYYY-MM-DD': { 'medId_morning': true } }
   workouts: DB.read('workouts', []),  // {id, date, name, notes, exercises:[{name, sets:[{weight,reps}]}]}
   runs: DB.read('runs', []),          // {id, date, name, distanceKm, durationSec, source, elevation, notes}
+  settings: DB.read('settings', { remEnabled: false, remMorning: '08:00', remEvening: '20:00' }),
   selectedDate: todayISO()
 };
 
@@ -58,6 +59,7 @@ $$('.tab').forEach(tab => tab.addEventListener('click', () => {
   $$('.view').forEach(v => v.classList.remove('active'));
   tab.classList.add('active');
   $('#view-' + tab.dataset.view).classList.add('active');
+  if (tab.dataset.view === 'stats') renderStats();
 }));
 
 const dateInput = $('#globalDate');
@@ -431,10 +433,197 @@ $('#gpxInput').addEventListener('change', async e => {
   toast(`${ok} lenkki(ä) tuotu${fail ? `, ${fail} epäonnistui` : ''}`);
 });
 
+/* ============================================================
+   MUISTUTUKSET (lääkkeet)
+   Selaimen Notification-API. Toimii kun sovellus on auki / taustalla
+   laitteella; ajastus uusitaan aina sivun avautuessa.
+   ============================================================ */
+let reminderTimers = [];
+
+function untakenMeds(slot) {
+  return medsForSlot(slot).filter(m => !isTaken(todayISO(), medKey(m, slot)));
+}
+
+function scheduleReminders() {
+  reminderTimers.forEach(clearTimeout);
+  reminderTimers = [];
+  if (!state.settings.remEnabled || Notification.permission !== 'granted') return;
+
+  [['morning', state.settings.remMorning, 'Aamulääkkeet 🌅'],
+   ['evening', state.settings.remEvening, 'Iltalääkkeet 🌙']].forEach(([slot, hhmm, title]) => {
+    if (!hhmm) return;
+    const [h, m] = hhmm.split(':').map(Number);
+    const next = new Date();
+    next.setHours(h, m, 0, 0);
+    if (next <= new Date()) next.setDate(next.getDate() + 1);
+    const delay = next - Date.now();
+    if (delay > 2 ** 31 - 1) return; // setTimeout-yläraja n. 24 vrk
+    reminderTimers.push(setTimeout(() => {
+      const left = untakenMeds(slot);
+      if (left.length) {
+        new Notification(title, {
+          body: 'Muista ottaa: ' + left.map(m => m.name).join(', '),
+          icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💊</text></svg>"
+        });
+      }
+      scheduleReminders(); // ajasta seuraava päivä
+    }, delay));
+  });
+}
+
+function updateReminderHint() {
+  const hint = $('#remHint');
+  if (!('Notification' in window)) { hint.textContent = 'Tämä selain ei tue muistutuksia.'; return; }
+  if (!state.settings.remEnabled) { hint.textContent = 'Muistutukset pois päältä.'; return; }
+  if (Notification.permission === 'denied') { hint.textContent = '⚠️ Ilmoitukset on estetty selaimen asetuksissa.'; return; }
+  if (Notification.permission === 'granted') {
+    hint.textContent = `Muistutukset päällä – aamu ${state.settings.remMorning}, ilta ${state.settings.remEvening}. Pidä sovellus auki tai lisättynä aloitusnäyttöön.`;
+  } else hint.textContent = 'Napauta kytkintä salliaksesi ilmoitukset.';
+}
+
+function initReminderUI() {
+  const enabled = $('#remEnabled'), mor = $('#remMorning'), eve = $('#remEvening');
+  enabled.checked = state.settings.remEnabled;
+  mor.value = state.settings.remMorning;
+  eve.value = state.settings.remEvening;
+
+  enabled.addEventListener('change', async () => {
+    if (enabled.checked && 'Notification' in window && Notification.permission !== 'granted') {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { enabled.checked = false; updateReminderHint(); return; }
+    }
+    state.settings.remEnabled = enabled.checked;
+    save('settings'); scheduleReminders(); updateReminderHint();
+  });
+  [mor, eve].forEach(el => el.addEventListener('change', () => {
+    state.settings.remMorning = mor.value;
+    state.settings.remEvening = eve.value;
+    save('settings'); scheduleReminders(); updateReminderHint();
+  }));
+  updateReminderHint();
+}
+
+/* ============================================================
+   TILASTOT / GRAAFIT (kevyt SVG, ei kirjastoja)
+   ============================================================ */
+function isoWeekStart(d) {
+  const x = new Date(d); x.setHours(0, 0, 0, 0);
+  const day = (x.getDay() + 6) % 7; // ma=0
+  x.setDate(x.getDate() - day);
+  return x;
+}
+
+function barChart(data, unit) {
+  // data: [{label, value}]
+  if (!data.length || data.every(d => d.value === 0))
+    return '<div class="chart-empty">Ei vielä dataa.</div>';
+  const W = 640, H = 220, padL = 34, padB = 28, padT = 14, padR = 8;
+  const max = Math.max(...data.map(d => d.value)) || 1;
+  const niceMax = Math.ceil(max * 1.1);
+  const cw = (W - padL - padR) / data.length;
+  const bw = Math.min(cw * 0.6, 42);
+  const y = v => padT + (H - padT - padB) * (1 - v / niceMax);
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+  for (let i = 0; i <= 4; i++) {
+    const v = niceMax * i / 4, yy = y(v);
+    svg += `<line class="grid-line" x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}"/>`;
+    svg += `<text class="axis-label" x="${padL - 5}" y="${yy + 3}" text-anchor="end">${v % 1 ? v.toFixed(1) : v}</text>`;
+  }
+  data.forEach((d, i) => {
+    const x = padL + i * cw + (cw - bw) / 2;
+    const yy = y(d.value), h = (H - padT - padB) - (yy - padT);
+    svg += `<rect class="bar" x="${x}" y="${yy}" width="${bw}" height="${Math.max(0, h)}" rx="3"><title>${esc(d.label)}: ${d.value}${unit}</title></rect>`;
+    if (d.value > 0) svg += `<text class="val-label" x="${x + bw / 2}" y="${yy - 4}">${d.value % 1 ? d.value.toFixed(1) : d.value}</text>`;
+    svg += `<text class="axis-label" x="${x + bw / 2}" y="${H - padB + 14}" text-anchor="middle">${esc(d.label)}</text>`;
+  });
+  return svg + '</svg>';
+}
+
+function lineChart(points, unit) {
+  // points: [{label, value}]
+  if (points.length < 1) return '<div class="chart-empty">Ei vielä dataa tälle liikkeelle.</div>';
+  if (points.length === 1) return `<div class="chart-empty">${esc(points[0].label)}: <b>${points[0].value}${unit}</b> (tarvitaan vähintään 2 treeniä käyrää varten).</div>`;
+  const W = 640, H = 220, padL = 34, padB = 30, padT = 16, padR = 12;
+  const max = Math.max(...points.map(p => p.value)), min = Math.min(...points.map(p => p.value));
+  const top = Math.ceil(max * 1.1), bottom = Math.max(0, Math.floor(min * 0.9));
+  const span = (top - bottom) || 1;
+  const x = i => padL + (W - padL - padR) * (points.length === 1 ? 0.5 : i / (points.length - 1));
+  const y = v => padT + (H - padT - padB) * (1 - (v - bottom) / span);
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+  for (let i = 0; i <= 4; i++) {
+    const v = bottom + span * i / 4, yy = y(v);
+    svg += `<line class="grid-line" x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}"/>`;
+    svg += `<text class="axis-label" x="${padL - 5}" y="${yy + 3}" text-anchor="end">${Math.round(v)}</text>`;
+  }
+  const path = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
+  svg += `<path class="line-path" d="${path}"/>`;
+  points.forEach((p, i) => {
+    svg += `<circle class="dot" cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="3.5"><title>${esc(p.label)}: ${p.value}${unit}</title></circle>`;
+    if (i === 0 || i === points.length - 1 || p.value === max)
+      svg += `<text class="val-label" x="${x(i).toFixed(1)}" y="${(y(p.value) - 7).toFixed(1)}">${p.value}</text>`;
+    if (i % Math.ceil(points.length / 6) === 0 || i === points.length - 1)
+      svg += `<text class="axis-label" x="${x(i).toFixed(1)}" y="${H - padB + 16}" text-anchor="middle">${esc(p.label)}</text>`;
+  });
+  return svg + '</svg>';
+}
+
+function renderRunChart() {
+  const weeks = 8;
+  const buckets = [];
+  const now = isoWeekStart(new Date());
+  for (let i = weeks - 1; i >= 0; i--) {
+    const start = new Date(now); start.setDate(start.getDate() - i * 7);
+    const end = new Date(start); end.setDate(end.getDate() + 7);
+    const km = state.runs
+      .filter(r => { const d = new Date(r.date + 'T00:00:00'); return d >= start && d < end; })
+      .reduce((s, r) => s + (r.distanceKm || 0), 0);
+    buckets.push({ label: `${start.getDate()}.${start.getMonth() + 1}.`, value: Math.round(km * 10) / 10 });
+  }
+  $('#chartRuns').innerHTML = barChart(buckets, ' km');
+}
+
+function exerciseNames() {
+  const set = new Set();
+  state.workouts.forEach(w => (w.exercises || []).forEach(e => { if (e.name) set.add(e.name); }));
+  return [...set].sort((a, b) => a.localeCompare(b, 'fi'));
+}
+
+function renderExerciseChart(name) {
+  if (!name) { $('#chartExercise').innerHTML = '<div class="chart-empty">Ei treeniliikkeitä vielä.</div>'; return; }
+  const points = state.workouts
+    .filter(w => (w.exercises || []).some(e => e.name === name))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map(w => {
+      const sets = w.exercises.filter(e => e.name === name).flatMap(e => e.sets);
+      const topWeight = Math.max(0, ...sets.map(s => parseFloat(s.weight) || 0));
+      const d = new Date(w.date + 'T00:00:00');
+      return { label: `${d.getDate()}.${d.getMonth() + 1}.`, value: Math.round(topWeight * 10) / 10 };
+    })
+    .filter(p => p.value > 0);
+  $('#chartExercise').innerHTML = lineChart(points, ' kg');
+}
+
+function renderStats() {
+  renderRunChart();
+  const sel = $('#exSelect');
+  const names = exerciseNames();
+  const prev = sel.value;
+  sel.innerHTML = names.length
+    ? names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')
+    : '<option value="">— ei liikkeitä —</option>';
+  if (names.includes(prev)) sel.value = prev;
+  renderExerciseChart(sel.value);
+}
+$('#exSelect').addEventListener('change', e => renderExerciseChart(e.target.value));
+
 /* ---------- Käynnistys ---------- */
 renderMeds();
 renderWorkouts();
 renderRuns();
+initReminderUI();
+scheduleReminders();
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});

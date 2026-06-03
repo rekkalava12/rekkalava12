@@ -27,6 +27,25 @@
       <ul class="med-list" id="medListEvening"></ul>
 
       <details class="manage">
+        <summary>Muistutukset 🔔</summary>
+        <div class="card form">
+          <label class="switch-row">
+            <span>Muistuta lääkkeistä</span>
+            <input type="checkbox" id="remEnabled" />
+          </label>
+          <div class="row two" style="margin-top:12px;">
+            <label>Aamumuistutus
+              <input type="time" id="remMorning" value="08:00" />
+            </label>
+            <label>Iltamuistutus
+              <input type="time" id="remEvening" value="20:00" />
+            </label>
+          </div>
+          <p class="empty-hint" id="remHint" style="margin:10px 0 0;"></p>
+        </div>
+      </details>
+
+      <details class="manage">
         <summary>Hallinnoi lääkkeitä</summary>
         <form id="medForm" class="card form">
           <div class="row">
@@ -61,6 +80,20 @@
       <ul class="entry-list" id="workoutList"></ul>
     </section>
 
+    <!-- TILASTOT -->
+    <section id="view-stats" class="view">
+      <h2>Lenkit – kilometrit / viikko</h2>
+      <div class="card chart-card" id="chartRuns"></div>
+
+      <h2>Treenit – liikkeen kehitys</h2>
+      <div class="card form">
+        <label>Valitse liike
+          <select id="exSelect"></select>
+        </label>
+      </div>
+      <div class="card chart-card" id="chartExercise"></div>
+    </section>
+
     <!-- LENKIT -->
     <section id="view-runs" class="view">
       <div class="view-head">
@@ -80,6 +113,7 @@
     <button class="tab active" data-view="meds"><span>💊</span>Lääkkeet</button>
     <button class="tab" data-view="workouts"><span>🏋️</span>Treenit</button>
     <button class="tab" data-view="runs"><span>👟</span>Lenkit</button>
+    <button class="tab" data-view="stats"><span>📊</span>Tilastot</button>
   </nav>
 
   <!-- Modaali -->

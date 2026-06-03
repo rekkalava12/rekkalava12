@@ -1,5 +1,5 @@
 /* Offline-välimuisti. Versionumeroa nostamalla pakotat päivityksen. */
-const CACHE = 'terveys-v1';
+const CACHE = 'terveys-v2';
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.json'];
 
 self.addEventListener('install', e => {
