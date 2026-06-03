@@ -164,6 +164,7 @@ textarea { resize: vertical; min-height: 60px; }
   position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,0.6);
   display: flex; align-items: flex-end; justify-content: center;
 }
+.modal-backdrop[hidden] { display: none; }
 .modal {
   background: var(--bg); width: 100%; max-width: 600px; max-height: 92vh; overflow-y: auto;
   border-radius: 18px 18px 0 0; border: 1px solid var(--border);

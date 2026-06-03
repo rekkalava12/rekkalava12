@@ -439,18 +439,59 @@ $('#gpxInput').addEventListener('change', async e => {
    laitteella; ajastus uusitaan aina sivun avautuessa.
    ============================================================ */
 let reminderTimers = [];
+const REM_SLOTS = [
+  ['morning', () => state.settings.remMorning, 'Aamulääkkeet 🌅'],
+  ['evening', () => state.settings.remEvening, 'Iltalääkkeet 🌙']
+];
+const MED_ICON = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💊</text></svg>";
+
+function notifSupported() { return 'Notification' in window; }
 
 function untakenMeds(slot) {
   return medsForSlot(slot).filter(m => !isTaken(todayISO(), medKey(m, slot)));
 }
 
+/* Näytä ilmoitus ensisijaisesti service workerin kautta (näkyy myös kun
+   sovellus on taustalla / lisätty aloitusnäyttöön); muuten suoraan. */
+function showNotification(title, body) {
+  if (!notifSupported() || Notification.permission !== 'granted') return;
+  const opts = { body, icon: MED_ICON, badge: MED_ICON, tag: 'med-reminder', renotify: true };
+  if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
+    navigator.serviceWorker.ready.then(reg => reg.showNotification(title, opts)).catch(() => {
+      try { new Notification(title, opts); } catch {}
+    });
+  } else {
+    try { new Notification(title, opts); } catch {}
+  }
+}
+
+function markNotified(slot) {
+  const today = todayISO();
+  state.settings.notified = state.settings.notified || {};
+  // Säilytä vain tämän päivän merkinnät
+  Object.keys(state.settings.notified).forEach(k => { if (!k.startsWith(today)) delete state.settings.notified[k]; });
+  state.settings.notified[today + '_' + slot] = true;
+  save('settings');
+}
+function wasNotified(slot) {
+  return !!(state.settings.notified && state.settings.notified[todayISO() + '_' + slot]);
+}
+
+function fireReminder(slot, title) {
+  const left = untakenMeds(slot);
+  if (left.length) {
+    showNotification(title, 'Muista ottaa: ' + left.map(m => m.name).join(', '));
+    markNotified(slot);
+  }
+}
+
 function scheduleReminders() {
   reminderTimers.forEach(clearTimeout);
   reminderTimers = [];
-  if (!state.settings.remEnabled || Notification.permission !== 'granted') return;
+  if (!state.settings.remEnabled || !notifSupported() || Notification.permission !== 'granted') return;
 
-  [['morning', state.settings.remMorning, 'Aamulääkkeet 🌅'],
-   ['evening', state.settings.remEvening, 'Iltalääkkeet 🌙']].forEach(([slot, hhmm, title]) => {
+  REM_SLOTS.forEach(([slot, getTime, title]) => {
+    const hhmm = getTime();
     if (!hhmm) return;
     const [h, m] = hhmm.split(':').map(Number);
     const next = new Date();
@@ -459,17 +500,27 @@ function scheduleReminders() {
     const delay = next - Date.now();
     if (delay > 2 ** 31 - 1) return; // setTimeout-yläraja n. 24 vrk
     reminderTimers.push(setTimeout(() => {
-      const left = untakenMeds(slot);
-      if (left.length) {
-        new Notification(title, {
-          body: 'Muista ottaa: ' + left.map(m => m.name).join(', '),
-          icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💊</text></svg>"
-        });
-      }
+      fireReminder(slot, title);
       scheduleReminders(); // ajasta seuraava päivä
     }, delay));
   });
 }
+
+/* Jos muistutusaika on jo mennyt tänään eikä lääkkeitä ole otettu, näytä
+   ilmoitus heti kun sovellus avataan/palaa etualalle. */
+function checkMissedReminders() {
+  if (!state.settings.remEnabled || !notifSupported() || Notification.permission !== 'granted') return;
+  const now = new Date();
+  REM_SLOTS.forEach(([slot, getTime, title]) => {
+    const hhmm = getTime();
+    if (!hhmm || wasNotified(slot)) return;
+    const [h, m] = hhmm.split(':').map(Number);
+    const t = new Date(); t.setHours(h, m, 0, 0);
+    if (now >= t) fireReminder(slot, title);
+  });
+}
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkMissedReminders(); });
 
 function updateReminderHint() {
   const hint = $('#remHint');
@@ -494,6 +545,7 @@ function initReminderUI() {
     }
     state.settings.remEnabled = enabled.checked;
     save('settings'); scheduleReminders(); updateReminderHint();
+    if (enabled.checked) showNotification('Muistutukset päällä ✅', 'Saat jatkossa muistutuksen lääkkeistä.');
   });
   [mor, eve].forEach(el => el.addEventListener('change', () => {
     state.settings.remMorning = mor.value;
@@ -627,4 +679,11 @@ scheduleReminders();
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+// Näytä mahdollinen ohitettu muistutus kun SW on valmis (ilmoitukset näkyvät paremmin).
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.ready.then(() => checkMissedReminders()).catch(() => checkMissedReminders());
+} else {
+  checkMissedReminders();
 }
