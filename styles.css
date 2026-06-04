@@ -191,6 +191,18 @@ textarea { resize: vertical; min-height: 60px; }
 .ex-readonly:last-child { border-bottom: none; }
 .ex-readonly .exr-name { font-weight: 600; margin-bottom: 4px; }
 .ex-readonly .exr-sets { color: var(--muted); font-size: 0.9rem; }
+/* Treeniohjelmat */
+.tpl-ex-row { display: grid; grid-template-columns: 1fr 64px auto 36px; gap: 8px; align-items: center; margin-bottom: 8px; }
+.tpl-ex-row input { margin-top: 0; padding: 9px; }
+.tpl-ex-row .muted-x { color: var(--muted); font-size: 0.8rem; }
+.prev-ref {
+  font-size: 0.8rem; color: var(--muted); background: var(--bg-soft);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px;
+  margin: 6px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.prev-ref b { color: var(--text); }
+.prev-ref .mini-btn { padding: 4px 8px; font-size: 0.74rem; margin-left: auto; }
+
 .modal-actions { display: flex; gap: 10px; margin-top: 8px; }
 .modal-actions .btn { flex: 1; }
 /* Muistutuskytkin */
