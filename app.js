@@ -17,6 +17,7 @@ const state = {
   medLog: DB.read('medLog', {}),      // { 'YYYY-MM-DD': { 'medId_morning': true } }
   workouts: DB.read('workouts', []),  // {id, date, name, notes, exercises:[{name, sets:[{weight,reps}]}]}
   runs: DB.read('runs', []),          // {id, date, name, distanceKm, durationSec, source, elevation, notes}
+  templates: DB.read('templates', []),// {id, name, gym, exercises:[{name, setCount}]}
   settings: DB.read('settings', { remEnabled: false, remMorning: '08:00', remEvening: '20:00', pushServerUrl: '' }),
   selectedDate: todayISO()
 };
@@ -193,31 +194,170 @@ function renderWorkouts() {
         <span class="ec-date">${esc(fmtDate(w.date))}</span>
       </div>
       <div class="ec-meta">
+        ${w.gym ? `<span>🏋️ ${esc(w.gym)}</span>` : ''}
         <span><b>${(w.exercises || []).length}</b> liikettä</span>
         <span><b>${totalSets}</b> sarjaa</span>
         ${w.notes ? `<span>📝 ${esc(w.notes.slice(0, 40))}${w.notes.length > 40 ? '…' : ''}</span>` : ''}
       </div>`;
-    li.addEventListener('click', () => openWorkoutEditor(w));
+    li.addEventListener('click', () => openWorkoutEditor(JSON.parse(JSON.stringify(w)), true));
     list.appendChild(li);
   });
 }
 
-function openWorkoutEditor(existing) {
-  const w = existing
-    ? JSON.parse(JSON.stringify(existing))
-    : { id: uid(), date: state.selectedDate, name: '', notes: '', exercises: [{ name: '', sets: [{ weight: '', reps: '' }] }] };
+/* Etsii saman liikkeen viimeisimmät sarjat aiemmista treeneistä.
+   Suosii samaa ohjelmaa (templateId), muuten yleisesti viimeisin esiintymä. */
+function prevSetsFor(name, templateId, excludeId) {
+  if (!name) return null;
+  const cands = state.workouts
+    .filter(w => w.id !== excludeId && (w.exercises || []).some(e => e.name === name && e.sets && e.sets.length))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  if (!cands.length) return null;
+  const chosen = (templateId && cands.find(w => w.templateId === templateId)) || cands[0];
+  const ex = chosen.exercises.find(e => e.name === name && e.sets && e.sets.length);
+  return { date: chosen.date, sets: ex.sets };
+}
+function fmtSetsShort(sets) {
+  return sets.filter(s => s.weight !== '' || s.reps !== '')
+    .map(s => `${s.weight !== '' && s.weight != null ? s.weight + 'kg' : '–'}${s.reps !== '' && s.reps != null ? '×' + s.reps : ''}`)
+    .join(', ');
+}
+function fmtDateShort(iso) { const d = new Date(iso + 'T00:00:00'); return `${d.getDate()}.${d.getMonth() + 1}.`; }
 
+function blankWorkoutDraft() {
+  return { id: uid(), date: state.selectedDate, name: '', gym: '', notes: '', templateId: null, exercises: [{ name: '', sets: [{ weight: '', reps: '' }] }] };
+}
+
+/* Rakentaa treeniluonnoksen ohjelmasta ja esitäyttää sarjat viime kerran arvoilla. */
+function draftFromTemplate(tpl) {
+  return {
+    id: uid(), date: state.selectedDate, name: tpl.name, gym: tpl.gym || '',
+    templateId: tpl.id, notes: '',
+    exercises: (tpl.exercises || []).map(te => {
+      const prev = prevSetsFor(te.name, tpl.id, null);
+      const count = Math.max(1, te.setCount || (prev ? prev.sets.length : 1) || 1);
+      const sets = Array.from({ length: count }, (_, i) =>
+        prev && prev.sets[i] ? { weight: prev.sets[i].weight, reps: prev.sets[i].reps } : { weight: '', reps: '' });
+      return { name: te.name, sets };
+    })
+  };
+}
+
+/* Ohjelmavalitsin uutta treeniä aloitettaessa */
+function openWorkoutStarter() {
+  const wrap = document.createElement('div');
+  const tpls = state.templates;
+  wrap.innerHTML = `
+    <button class="btn primary full" id="startBlank" style="margin-bottom:14px;">Tyhjä treeni</button>
+    ${tpls.length ? '<div class="rb-label" style="margin-bottom:8px;">Tai valitse oma ohjelma:</div>' : '<p class="empty-hint">Ei vielä omia ohjelmia. Luo sellainen alta.</p>'}
+    <ul class="entry-list" id="tplPick"></ul>
+    <button class="btn ghost full" id="goManage" style="margin-top:14px;">Hallinnoi ohjelmia</button>`;
+  const list = wrap.querySelector('#tplPick');
+  tpls.forEach(t => {
+    const li = document.createElement('li');
+    li.className = 'entry-card';
+    li.innerHTML = `
+      <div class="ec-head"><span class="ec-title">${esc(t.name)}</span>${t.gym ? `<span class="ec-date">${esc(t.gym)}</span>` : ''}</div>
+      <div class="ec-meta"><span>${(t.exercises || []).map(e => esc(e.name)).join(' · ') || 'ei liikkeitä'}</span></div>`;
+    li.addEventListener('click', () => openWorkoutEditor(draftFromTemplate(t), false));
+    list.appendChild(li);
+  });
+  wrap.querySelector('#startBlank').addEventListener('click', () => openWorkoutEditor(blankWorkoutDraft(), false));
+  wrap.querySelector('#goManage').addEventListener('click', openTemplateManager);
+  openModal('Aloita treeni', wrap);
+}
+
+/* Treeniohjelmien hallinta */
+function openTemplateManager() {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <button class="btn primary full" id="newTpl" style="margin-bottom:14px;">+ Uusi ohjelma</button>
+    <ul class="entry-list" id="tplList"></ul>`;
+  const list = wrap.querySelector('#tplList');
+  if (!state.templates.length) list.innerHTML = '<li class="empty-hint">Ei ohjelmia vielä. Luo salikohtainen oma ohjelma yltä.</li>';
+  state.templates.forEach(t => {
+    const li = document.createElement('li');
+    li.className = 'entry-card';
+    li.innerHTML = `
+      <div class="ec-head"><span class="ec-title">${esc(t.name)}</span>${t.gym ? `<span class="ec-date">${esc(t.gym)}</span>` : ''}</div>
+      <div class="ec-meta"><span><b>${(t.exercises || []).length}</b> liikettä</span><span>${(t.exercises || []).map(e => esc(e.name)).join(' · ')}</span></div>`;
+    li.addEventListener('click', () => openTemplateEditor(t));
+    list.appendChild(li);
+  });
+  wrap.querySelector('#newTpl').addEventListener('click', () => openTemplateEditor(null));
+  openModal('Treeniohjelmat', wrap);
+}
+
+function openTemplateEditor(existing) {
+  const t = existing ? JSON.parse(JSON.stringify(existing))
+    : { id: uid(), name: '', gym: '', exercises: [{ name: '', setCount: 3 }] };
+  const form = document.createElement('div');
+  form.innerHTML = `
+    <div class="row two" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+      <label>Ohjelman nimi<input type="text" id="tName" placeholder="esim. Työntö A" value="${esc(t.name)}"></label>
+      <label>Sali<input type="text" id="tGym" placeholder="esim. Kotisali" value="${esc(t.gym)}"></label>
+    </div>
+    <div class="rb-label" style="margin-bottom:6px;">Liikkeet ja sarjamäärät</div>
+    <div id="tExWrap"></div>
+    <button class="mini-btn" id="tAddEx" style="width:100%;margin:4px 0 14px;">+ Lisää liike</button>
+    <div class="modal-actions">
+      ${existing ? '<button class="btn danger" id="tDel">Poista</button>' : ''}
+      <button class="btn primary" id="tSave">Tallenna ohjelma</button>
+    </div>`;
+  const wrap = form.querySelector('#tExWrap');
+  function renderEx() {
+    wrap.innerHTML = '';
+    t.exercises.forEach((ex, i) => {
+      const row = document.createElement('div');
+      row.className = 'tpl-ex-row';
+      row.innerHTML = `
+        <input type="text" class="t-name" data-i="${i}" placeholder="Liike (esim. Kyykky)" value="${esc(ex.name)}">
+        <input type="number" class="t-sets" data-i="${i}" min="1" max="20" value="${ex.setCount || 3}" title="Sarjojen määrä">
+        <span class="muted-x">sarjaa</span>
+        <button class="mini-btn t-del" data-i="${i}" title="Poista">✕</button>`;
+      wrap.appendChild(row);
+    });
+  }
+  form.addEventListener('input', e => {
+    const el = e.target;
+    if (el.classList.contains('t-name')) t.exercises[+el.dataset.i].name = el.value;
+    else if (el.classList.contains('t-sets')) t.exercises[+el.dataset.i].setCount = Math.max(1, parseInt(el.value) || 1);
+  });
+  form.addEventListener('click', e => {
+    if (e.target.classList.contains('t-del')) { t.exercises.splice(+e.target.dataset.i, 1); renderEx(); }
+  });
+  form.querySelector('#tAddEx').addEventListener('click', () => { t.exercises.push({ name: '', setCount: 3 }); renderEx(); });
+  form.querySelector('#tSave').addEventListener('click', () => {
+    t.name = form.querySelector('#tName').value.trim();
+    t.gym = form.querySelector('#tGym').value.trim();
+    t.exercises = t.exercises.map(ex => ({ name: ex.name.trim(), setCount: Math.max(1, ex.setCount || 1) })).filter(ex => ex.name);
+    if (!t.name) { toast('Anna ohjelmalle nimi'); return; }
+    const idx = state.templates.findIndex(x => x.id === t.id);
+    if (idx >= 0) state.templates[idx] = t; else state.templates.push(t);
+    save('templates'); toast('Ohjelma tallennettu'); openTemplateManager();
+  });
+  if (existing) form.querySelector('#tDel').addEventListener('click', () => {
+    if (confirm(`Poistetaanko ohjelma “${t.name}”?`)) {
+      state.templates = state.templates.filter(x => x.id !== t.id);
+      save('templates'); openTemplateManager();
+    }
+  });
+  renderEx();
+  openModal(existing ? 'Muokkaa ohjelmaa' : 'Uusi ohjelma', form);
+}
+
+function openWorkoutEditor(w, isExisting) {
   const form = document.createElement('div');
   form.innerHTML = `
     <div class="row two" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
       <label>Päivämäärä<input type="date" id="wDate" value="${w.date}"></label>
       <label>Treenin nimi<input type="text" id="wName" placeholder="esim. Jalkapäivä" value="${esc(w.name)}"></label>
     </div>
+    <label style="margin-bottom:12px;display:block;">Sali (valinnainen)<input type="text" id="wGym" placeholder="esim. Kotisali" value="${esc(w.gym || '')}"></label>
     <div id="exWrap"></div>
     <button class="mini-btn" id="addEx" style="width:100%;margin:4px 0 14px;">+ Lisää liike</button>
     <label>Muistiinpanot<textarea id="wNotes" placeholder="Fiilis, kommentit…">${esc(w.notes)}</textarea></label>
     <div class="modal-actions">
-      ${existing ? '<button class="btn danger" id="wDelete">Poista</button>' : ''}
+      ${isExisting ? '<button class="btn danger" id="wDelete">Poista</button>' : ''}
       <button class="btn primary" id="wSave">Tallenna</button>
     </div>`;
 
@@ -226,6 +366,11 @@ function openWorkoutEditor(existing) {
   function renderExercises() {
     exWrap.innerHTML = '';
     w.exercises.forEach((ex, ei) => {
+      const prev = prevSetsFor(ex.name, w.templateId, w.id);
+      const prevHtml = prev && fmtSetsShort(prev.sets)
+        ? `<div class="prev-ref">📅 Viime kerralla ${fmtDateShort(prev.date)}: <b>${esc(fmtSetsShort(prev.sets))}</b>
+             <button class="mini-btn prev-copy" data-ei="${ei}">↻ kopioi</button></div>`
+        : '';
       const block = document.createElement('div');
       block.className = 'exercise';
       block.innerHTML = `
@@ -233,6 +378,7 @@ function openWorkoutEditor(existing) {
           <input type="text" placeholder="Liike (esim. Penkkipunnerrus)" value="${esc(ex.name)}" data-ei="${ei}" class="ex-name">
           <button class="mini-btn ex-del" data-ei="${ei}" title="Poista liike">🗑</button>
         </div>
+        ${prevHtml}
         <div class="sets" data-ei="${ei}"></div>
         <button class="mini-btn add-set" data-ei="${ei}" style="margin-top:8px;">+ Sarja</button>`;
       const setsBox = block.querySelector('.sets');
@@ -261,12 +407,18 @@ function openWorkoutEditor(existing) {
     if (t.classList.contains('add-set')) { w.exercises[+t.dataset.ei].sets.push({ weight: '', reps: '' }); renderExercises(); }
     else if (t.classList.contains('set-del')) { w.exercises[+t.dataset.ei].sets.splice(+t.dataset.si, 1); renderExercises(); }
     else if (t.classList.contains('ex-del')) { w.exercises.splice(+t.dataset.ei, 1); renderExercises(); }
+    else if (t.classList.contains('prev-copy')) {
+      const ei = +t.dataset.ei;
+      const prev = prevSetsFor(w.exercises[ei].name, w.templateId, w.id);
+      if (prev) { w.exercises[ei].sets = prev.sets.map(s => ({ weight: s.weight, reps: s.reps })); renderExercises(); }
+    }
   });
   form.querySelector('#addEx').addEventListener('click', () => { w.exercises.push({ name: '', sets: [{ weight: '', reps: '' }] }); renderExercises(); });
 
   form.querySelector('#wSave').addEventListener('click', () => {
     w.date = form.querySelector('#wDate').value || todayISO();
     w.name = form.querySelector('#wName').value.trim();
+    w.gym = form.querySelector('#wGym').value.trim();
     w.notes = form.querySelector('#wNotes').value.trim();
     w.exercises = w.exercises
       .map(ex => ({ name: ex.name.trim(), sets: ex.sets.filter(s => s.weight !== '' || s.reps !== '') }))
@@ -275,7 +427,7 @@ function openWorkoutEditor(existing) {
     if (idx >= 0) state.workouts[idx] = w; else state.workouts.push(w);
     save('workouts'); renderWorkouts(); closeModal(); toast('Treeni tallennettu');
   });
-  if (existing) form.querySelector('#wDelete').addEventListener('click', () => {
+  if (isExisting) form.querySelector('#wDelete').addEventListener('click', () => {
     if (confirm('Poistetaanko treeni?')) {
       state.workouts = state.workouts.filter(x => x.id !== w.id);
       save('workouts'); renderWorkouts(); closeModal();
@@ -283,10 +435,11 @@ function openWorkoutEditor(existing) {
   });
 
   renderExercises();
-  openModal(existing ? 'Muokkaa treeniä' : 'Uusi treeni', form);
+  openModal(isExisting ? 'Muokkaa treeniä' : 'Uusi treeni', form);
 }
 
-$('#addWorkoutBtn').addEventListener('click', () => openWorkoutEditor(null));
+$('#addWorkoutBtn').addEventListener('click', openWorkoutStarter);
+$('#manageTemplatesBtn').addEventListener('click', openTemplateManager);
 
 /* ============================================================
    LENKIT

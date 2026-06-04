@@ -54,9 +54,20 @@ puhelimen aloitusnäyttöön ja avaat sen muistutusaikoihin.
 
 ## Treenit
 
-- **+ Uusi treeni** → anna päivä, nimi, lisää liikkeet ja jokaiselle sarjat
-  (paino kg + toistot). Lisää muistiinpanot tarvittaessa.
+- **+ Uusi treeni** → valitse *Tyhjä treeni* tai jokin omista
+  **treeniohjelmistasi**. Anna päivä, nimi ja sali, lisää liikkeet ja
+  jokaiselle sarjat (paino kg + toistot). Lisää muistiinpanot tarvittaessa.
 - Napauta olemassa olevaa treeniä muokataksesi tai poistaaksesi sen.
+
+### Treeniohjelmat (omat mallit)
+
+- **Ohjelmat**-painikkeesta voit luoda salikohtaisia omia ohjelmia: anna nimi,
+  sali ja liikkeet sarjamäärineen (esim. *Työntö A* / Kotisali: Penkki 3,
+  Pystypunnerrus 3, Dipit 3).
+- Kun aloitat uuden treenin ja valitset ohjelman, liikkeet täyttyvät valmiiksi.
+- Jokaisen liikkeen kohdalla näkyy **“Viime kerralla”** – saman liikkeen
+  edelliset painot ja toistot – ja sarjat esitäytetään niillä, jotta näet
+  tavoitteen ja voit edetä. *↻ kopioi* täyttää viime kerran arvot uudelleen.
 
 ## Lenkit
 
