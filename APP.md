@@ -93,8 +93,29 @@ Voit tuoda useita tiedostoja kerralla. Jos haluat myöhemmin täysin
 automaattisen synkronoinnin, se vaatii oman taustapalvelun – kerro, niin
 voimme suunnitella sellaisen.
 
+## Synkronointi laitteiden välillä
+
+Voit pitää lääkkeet, treenit, ohjelmat ja lenkit samoina puhelimella ja
+tietokoneella:
+
+1. Julkaise taustapalvelin (kansio [`server/`](server/README.md)) ja anna sen
+   osoite *Muistutukset*-osiossa.
+2. Avaa **Synkronointi 🔄** ja syötä itse keksimäsi **synkronointikoodi** –
+   sama koodi kaikille laitteille.
+3. Tiedot synkronoituvat automaattisesti sovellusta avatessa ja muutoksia
+   tehdessä. *Synkronoi nyt* hakee tuoreimmat heti.
+
+Synkronointi on “uusin voittaa” -tyyppinen koko datan tasolla. Valitse pitkä ja
+yksilöllinen koodi – kuka tahansa samaa koodia käyttävä näkisi tiedot.
+
 ## Tietojen sijainti ja varmuuskopiointi
 
-Tiedot ovat vain käyttämässäsi selaimessa/laitteessa. Selaimen tietojen
-tyhjentäminen poistaa ne. Eri laitteiden välillä tiedot eivät synkronoidu
-tässä versiossa.
+Ilman synkronointia tiedot ovat vain käyttämässäsi selaimessa/laitteessa.
+Selaimen tietojen tyhjentäminen poistaa ne. Synkronointi (yllä) pitää tiedot
+useammalla laitteella ja toimii samalla varmuuskopiona palvelimella.
+
+## Päivittyminen (kotivalikon sovellus)
+
+Sovellus päivittyy automaattisesti: kun julkaiset uuden version, kotivalikkoon
+lisätty sovellus latautuu kerran uudelleen ja ottaa uuden version käyttöön.
+Jos jäät joskus vanhaan versioon, sulje sovellus kokonaan ja avaa uudelleen.

@@ -18,11 +18,22 @@ const state = {
   workouts: DB.read('workouts', []),  // {id, date, name, notes, exercises:[{name, sets:[{weight,reps}]}]}
   runs: DB.read('runs', []),          // {id, date, name, distanceKm, durationSec, source, elevation, notes}
   templates: DB.read('templates', []),// {id, name, gym, exercises:[{name, setCount}]}
-  settings: DB.read('settings', { remEnabled: false, remMorning: '08:00', remEvening: '20:00', pushServerUrl: '' }),
+  settings: DB.read('settings', { remEnabled: false, remMorning: '08:00', remEvening: '20:00', pushServerUrl: '', syncCode: '' }),
+  meta: DB.read('meta', { updatedAt: 0 }),
   selectedDate: todayISO()
 };
 
-function save(key) { DB.write(key, state[key]); }
+const SYNC_KEYS = ['meds', 'medLog', 'workouts', 'runs', 'templates'];
+let applyingSync = false;
+
+function save(key) {
+  DB.write(key, state[key]);
+  if (SYNC_KEYS.includes(key) && !applyingSync) {
+    state.meta.updatedAt = Date.now();
+    DB.write('meta', state.meta);
+    scheduleSyncPush();
+  }
+}
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function todayISO() { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); }
 
@@ -674,7 +685,7 @@ function checkMissedReminders() {
   });
 }
 
-document.addEventListener('visibilitychange', () => { if (!document.hidden) checkMissedReminders(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkMissedReminders(); syncPull(); } });
 
 /* ---------- Web Push (taustapalvelu) ----------
    Jos käyttäjä on antanut push-palvelimen osoitteen, tilataan push-ilmoitukset,
@@ -761,6 +772,112 @@ async function sendTestPush() {
   } catch (e) { console.error(e); toast('Testi epäonnistui'); }
 }
 
+/* ============================================================
+   SYNKRONOINTI (laitteiden välillä, sama palvelin kuin push)
+   Koko datan synkronointi synkronointikoodilla. Uusin voittaa
+   (aikaleima koko datasta). ============================================ */
+function syncCode() { return (state.settings.syncCode || '').trim(); }
+function syncEnabled() { return !!(pushBase() && syncCode().length >= 4); }
+function syncBundle() {
+  const b = {};
+  SYNC_KEYS.forEach(k => { b[k] = state[k]; });
+  return b;
+}
+function applySync(data) {
+  applyingSync = true;
+  SYNC_KEYS.forEach(k => { if (data[k] !== undefined) { state[k] = data[k]; DB.write(k, state[k]); } });
+  applyingSync = false;
+  renderMeds(); renderWorkouts(); renderRuns();
+}
+
+async function syncPushNow() {
+  if (!syncEnabled()) return;
+  try {
+    await fetch(pushBase() + '/api/sync/push', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: syncCode(), data: syncBundle(), updatedAt: state.meta.updatedAt || Date.now() })
+    });
+    updateSyncHint('Synkronoitu äsken');
+  } catch (e) { console.error('syncPush', e); updateSyncHint('Synkronointi epäonnistui (palvelin?)'); }
+}
+
+let syncTimer = null;
+function scheduleSyncPush() {
+  if (applyingSync || !syncEnabled()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncPushNow().catch(() => {}), 1500);
+}
+
+async function syncPull(opts = {}) {
+  if (!syncEnabled()) return;
+  try {
+    const r = await fetch(pushBase() + '/api/sync/pull', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: syncCode() })
+    });
+    if (!r.ok) throw new Error('pull ' + r.status);
+    const { data, updatedAt } = await r.json();
+    if (data && updatedAt > (state.meta.updatedAt || 0)) {
+      applySync(data);
+      state.meta.updatedAt = updatedAt; DB.write('meta', state.meta);
+      if (opts.announce) toast('Tiedot synkronoitu tältä palvelimelta');
+      updateSyncHint('Tiedot päivitetty palvelimelta');
+    } else if (!data) {
+      await syncPushNow(); // palvelin tyhjä -> vie omat tiedot
+    } else {
+      updateSyncHint('Ajan tasalla');
+    }
+  } catch (e) { console.error('syncPull', e); updateSyncHint('Synkronointi epäonnistui (palvelin?)'); }
+}
+
+/* Ensimmäinen synkronointi kun koodi asetetaan: kysy suunta jos palvelimella on jo tietoja. */
+async function syncFirstTime() {
+  if (!syncEnabled()) return;
+  try {
+    const r = await fetch(pushBase() + '/api/sync/pull', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: syncCode() })
+    });
+    const { data, updatedAt } = await r.json();
+    const localHasData = SYNC_KEYS.some(k => Array.isArray(state[k]) ? state[k].length : Object.keys(state[k] || {}).length);
+    if (data && localHasData) {
+      const download = confirm('Tällä synkronointikoodilla on jo tietoja palvelimella.\n\nOK = LATAA ne tähän laitteeseen (tämän laitteen nykyiset tiedot korvataan).\nPeruuta = LÄHETÄ tämän laitteen tiedot palvelimelle (palvelimen tiedot korvataan).');
+      if (download) { applySync(data); state.meta.updatedAt = updatedAt; DB.write('meta', state.meta); toast('Ladattu palvelimelta'); }
+      else { state.meta.updatedAt = Date.now(); DB.write('meta', state.meta); await syncPushNow(); toast('Lähetetty palvelimelle'); }
+    } else if (data) {
+      applySync(data); state.meta.updatedAt = updatedAt; DB.write('meta', state.meta); toast('Ladattu palvelimelta');
+    } else {
+      state.meta.updatedAt = Date.now(); DB.write('meta', state.meta); await syncPushNow(); toast('Synkronointi käytössä ✅');
+    }
+  } catch (e) { console.error(e); updateSyncHint('Palvelimeen ei saatu yhteyttä'); }
+  updateSyncHint();
+}
+
+function updateSyncHint(msg) {
+  const hint = $('#syncHint');
+  if (!hint) return;
+  if (msg) { hint.textContent = msg; return; }
+  if (!pushBase()) { hint.textContent = 'Aseta ensin palvelimen osoite Muistutukset-osiossa.'; return; }
+  if (syncCode().length < 4) { hint.textContent = 'Synkronointi pois päältä.'; return; }
+  hint.textContent = 'Synkronointi päällä. Käytä samaa koodia muillakin laitteilla.';
+}
+
+function initSyncUI() {
+  const code = $('#syncCode');
+  code.value = state.settings.syncCode || '';
+  code.addEventListener('change', () => {
+    state.settings.syncCode = code.value.trim();
+    DB.write('settings', state.settings);
+    updateSyncHint();
+    if (syncEnabled()) syncFirstTime();
+  });
+  $('#syncNow').addEventListener('click', () => {
+    if (!syncEnabled()) { toast('Aseta palvelin ja koodi ensin'); return; }
+    syncPull({ announce: true });
+  });
+  updateSyncHint();
+}
+
 function updateReminderHint() {
   const hint = $('#remHint');
   if (!('Notification' in window)) { hint.textContent = 'Tämä selain ei tue muistutuksia.'; return; }
@@ -798,7 +915,7 @@ function initReminderUI() {
   }));
   purl.addEventListener('change', () => {
     state.settings.pushServerUrl = purl.value.trim();
-    save('settings'); updateReminderHint(); syncPush({ announce: true });
+    save('settings'); updateReminderHint(); updateSyncHint(); syncPush({ announce: true });
   });
   $('#pushTest').addEventListener('click', sendTestPush);
   updateReminderHint();
@@ -924,15 +1041,29 @@ renderMeds();
 renderWorkouts();
 renderRuns();
 initReminderUI();
+initSyncUI();
 scheduleReminders();
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // Auto-päivitys: kun uusi service worker ottaa ohjat, ladataan sivu kerran,
+  // jottei kotivalikkoon asennettu sovellus jää vanhaan välimuistiin jumiin.
+  let refreshing = false;
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing || !hadController) return; // ei uudelleenlatausta ensiasennuksessa
+    refreshing = true;
+    window.location.reload();
+  });
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    reg.update();
+    setInterval(() => reg.update(), 60 * 60 * 1000); // tarkista päivitys tunnin välein
+  }).catch(() => {});
 }
 
-// Näytä mahdollinen ohitettu muistutus kun SW on valmis (ilmoitukset näkyvät paremmin).
+// Näytä mahdollinen ohitettu muistutus + synkronoi kun SW on valmis.
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.ready.then(() => { checkMissedReminders(); syncPush(); }).catch(() => checkMissedReminders());
+  navigator.serviceWorker.ready.then(() => { checkMissedReminders(); syncPush(); syncPull(); }).catch(() => { checkMissedReminders(); syncPull(); });
 } else {
   checkMissedReminders();
+  syncPull();
 }

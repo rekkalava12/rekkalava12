@@ -79,6 +79,25 @@ Tämä sekä herättää palvelimen että laukaisee muistutusten tarkistuksen.
 | `POST /api/unsubscribe` | `{ endpoint }` – poista tilaus |
 | `POST /api/test` | `{ endpoint }` – lähetä testimuistutus |
 | `POST /api/tick` | tarkista ja lähetä ajankohtaiset muistutukset |
+| `POST /api/sync/pull` | `{ code }` – hae synkronoidut tiedot |
+| `POST /api/sync/push` | `{ code, data, updatedAt }` – tallenna tiedot |
+
+## Synkronointi laitteiden välillä
+
+Sama palvelin hoitaa myös tietojen synkronoinnin (lääkkeet, treenit, ohjelmat,
+lenkit) puhelimen ja tietokoneen välillä:
+
+1. Anna sovelluksessa palvelimen osoite (Muistutukset-osio).
+2. Avaa **Synkronointi 🔄** ja syötä itse keksimäsi **synkronointikoodi**
+   (toimii salasanana) – sama koodi kaikille laitteille.
+3. Tiedot tallentuvat palvelimelle koodin perusteella ja päivittyvät
+   automaattisesti, kun avaat sovelluksen tai teet muutoksia.
+
+Tiedot tunnistetaan koodista lasketulla tiivisteellä (raakaa koodia ei
+tallenneta). Synkronointi on “uusin voittaa” -tyyppinen koko datan tasolla:
+jos muokkaat samaa asiaa kahdella laitteella offline-tilassa, viimeisin
+tallennus jää voimaan. **Valitse riittävän pitkä ja yksilöllinen koodi**, sillä
+kuka tahansa samaa koodia käyttävä näkee tiedot.
 
 ## Tietosuoja
 

@@ -1,5 +1,5 @@
 /* Offline-välimuisti. Versionumeroa nostamalla pakotat päivityksen. */
-const CACHE = 'terveys-v5';
+const CACHE = 'terveys-v6';
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.json'];
 const ICON = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💊</text></svg>";
 
@@ -36,13 +36,31 @@ self.addEventListener('notificationclick', e => {
 });
 
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
+  const req = e.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  // Sovelluksen runko (HTML/JS/CSS): verkko ensin, jotta päivitykset tulevat
+  // heti perille; offline-tilassa palautetaan välimuistista.
+  const isShell = req.mode === 'navigate' || url.pathname.endsWith('/') || /\.(html|js|css|json)$/.test(url.pathname);
+  if (isShell) {
+    e.respondWith(
+      fetch(req).then(res => {
+        if (res && res.status === 200) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(req, copy));
+        }
+        return res;
+      }).catch(() => caches.match(req).then(m => m || caches.match('./index.html')))
+    );
+    return;
+  }
+  // Muut: välimuisti ensin, taustapäivitys.
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      const network = fetch(e.request).then(res => {
+    caches.match(req).then(cached => {
+      const network = fetch(req).then(res => {
         if (res && res.status === 200 && res.type === 'basic') {
           const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(e.request, copy));
+          caches.open(CACHE).then(c => c.put(req, copy));
         }
         return res;
       }).catch(() => cached);
