@@ -10,6 +10,7 @@ const express = require('express');
 const webpush = require('web-push');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
@@ -32,8 +33,12 @@ webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:terveys@example.com
 
 /* ---- Tallennus (yksinkertainen JSON-tiedosto) ---- */
 function load() {
-  try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); }
-  catch { return { subs: {} }; }
+  let d;
+  try { d = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); }
+  catch { d = {}; }
+  if (!d.subs) d.subs = {};
+  if (!d.sync) d.sync = {};
+  return d;
 }
 function store() {
   try { fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2)); }
@@ -43,7 +48,7 @@ let db = load();
 
 /* ---- HTTP ---- */
 const app = express();
-app.use(express.json({ limit: '64kb' }));
+app.use(express.json({ limit: '5mb' }));
 app.use((req, res, next) => {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Headers', 'Content-Type');
@@ -80,6 +85,27 @@ app.post('/api/test', async (req, res) => {
     await webpush.sendNotification(rec.subscription, JSON.stringify({ title: 'Testimuistutus 💊', body: 'Push-muistutukset toimivat!' }));
     res.json({ ok: true });
   } catch (e) { res.status(502).json({ error: String(e && e.statusCode || e) }); }
+});
+
+/* ---- Synkronointi (laitteiden välillä) ----
+   Koko datan tallennus synkronointikoodilla. Koodista lasketaan hash, jota
+   käytetään avaimena (raakaa koodia ei tallenneta). */
+function codeKey(code) { return crypto.createHash('sha256').update(String(code)).digest('hex'); }
+
+app.post('/api/sync/pull', (req, res) => {
+  const code = req.body && req.body.code;
+  if (!code || String(code).length < 4) return res.status(400).json({ error: 'koodi puuttuu (väh. 4 merkkiä)' });
+  const rec = db.sync[codeKey(code)];
+  res.json({ data: rec ? rec.data : null, updatedAt: rec ? rec.updatedAt : 0 });
+});
+
+app.post('/api/sync/push', (req, res) => {
+  const { code, data, updatedAt } = req.body || {};
+  if (!code || String(code).length < 4) return res.status(400).json({ error: 'koodi puuttuu (väh. 4 merkkiä)' });
+  if (!data || typeof data !== 'object') return res.status(400).json({ error: 'data puuttuu' });
+  db.sync[codeKey(code)] = { data, updatedAt: updatedAt || Date.now() };
+  store();
+  res.json({ ok: true });
 });
 
 app.post('/api/tick', (req, res) => {
