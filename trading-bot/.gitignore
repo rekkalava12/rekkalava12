@@ -1,0 +1,8 @@
+config.toml
+*.json
+!config.example.json
+*.log
+trades*.csv
+__pycache__/
+.pytest_cache/
+.env
